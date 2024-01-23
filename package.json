@@ -1,0 +1,22 @@
+{
+  "name": "deadcodeanalyzer",
+  "version": "1.0.0",
+  "description": "Semester project for COP 5021",
+  "main": "test.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JudahRowe/DeadCodeAnalyzer.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/JudahRowe/DeadCodeAnalyzer/issues"
+  },
+  "homepage": "https://github.com/JudahRowe/DeadCodeAnalyzer#readme",
+  "dependencies": {
+    "acorn": "^8.11.3"
+  }
+}
