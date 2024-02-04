@@ -1,4 +1,4 @@
-let input, output, i
+let input, output, i, condition, update
 
 // Calculating factorial
 input = 10, output = 1, i = input
@@ -12,3 +12,9 @@ console.log('the factorial of', input, 'is', output)
 i = 23 // a dead assignment
 i = 34
 console.log('i is now equal to', i)
+
+// Testing IfStatement and UpdateExpression node types for gen/kill variables
+condition = 1
+if (condition > 0) {
+   ++update
+}
