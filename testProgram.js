@@ -1,7 +1,9 @@
 let input, output, i, condition, update
 
 // Calculating factorial
-input = 10, output = 1, i = input
+input = 10
+output = 1
+i = input
 while (i > 0) {
     output = output * i
     i = i - 1
@@ -17,4 +19,11 @@ console.log('i is now equal to', i)
 condition = 1
 if (condition > 0) {
    ++update
+}
+
+// Try/catch
+try {
+   throw 1
+} catch {
+   console.log('error')
 }
