@@ -1,29 +1,34 @@
-let input, output, i, condition, update
-
 // Calculating factorial
+let input, output, i
+
 input = 10
 output = 1
 i = input
+
 while (i > 0) {
     output = output * i
     i = i - 1
 }
 console.log('the factorial of', input, 'is', output)
 
+if (output > 100) {
+  console.log('the factorial is greater than 100')
+}  else {
+  difference = 100 - output
+  console.log('the factorial is', difference, ' less than 100')
+}
+
 // Dead code scenario
 i = 23 // a dead assignment
 i = 34
 console.log('i is now equal to', i)
 
-// Testing IfStatement and UpdateExpression node types for gen/kill variables
-condition = 1
-if (condition > 0) {
-   ++update
-}
-
-// Try/catch
 try {
-   throw 1
+  // assuming any statement here <may> throw an exception, but throw statements <must>
+  i = 12
+  i = 13
+  throw "Oh no!"
+  i = 14
 } catch {
-   console.log('error')
+  console.log("Oh no!")
 }
