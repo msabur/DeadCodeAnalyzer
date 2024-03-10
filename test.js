@@ -157,7 +157,14 @@ function getFlows(ast) {
 
     if (["Program", "BlockStatement"].includes(ast.type)) {
         for (let statement of ast.body) {
+            console.log(statement.type, statement.start)
             if (statement.type === "ExpressionStatement") {
+                prevLocations.forEach(location => result.push([location, statement.start]))
+                prevLocations = [statement.start]
+            } else if (statement.type === "VariableDeclaration") {
+                prevLocations.forEach(location => result.push([location, statement.start]))
+                prevLocations = [statement.start]
+            } else if (statement.type === "ThrowStatement") {
                 prevLocations.forEach(location => result.push([location, statement.start]))
                 prevLocations = [statement.start]
             } else if (statement.type === "IfStatement") {
@@ -181,9 +188,45 @@ function getFlows(ast) {
                 } else {
 					prevLocations.push(statement.test.start)
                 }
-            }
-        }
-    }
+            } else if (statement.type === "WhileStatement") {
+                prevLocations.forEach(location => result.push([location, statement.test.start]))
+                
+                if (statement.body.body.length > 0) {
+                    // flows from test into the while body
+                    result.push([statement.test.start, getInitialLocation(statement.body)])
+                    result.push(...getFlows(statement.body))
+                    
+                    // flows from end of while body to test
+                    prevLocations = [getFinalLocation(statement.body)]
+                    prevLocations.forEach(location => result.push([location, statement.test.start]))
+                } else {
+                    result.push([statement.test.start, statement.test.start])
+                    prevLocations = [statement.test.start]
+                }
+            } else if (statement.type === "TryStatement") {
+                if (statement.block.body.length > 0) {
+                    prevLocations.forEach(location => result.push([location, getInitialLocation(statement.block)]))
+                    result.push(...getFlows(statement.block))
+                    prevLocations = [getFinalLocation(statement.block)]
+                }
 
+                if (statement.handler) {
+                    if (statement.handler.body.body.length > 0) {
+                        prevLocations.forEach(location => result.push([location, getInitialLocation(statement.handler.body)]))
+                        result.push(...getFlows(statement.handler.body))
+                        prevLocations.push(getFinalLocation(statement.handler.body))
+                    }
+                }
+
+                if (statement.finalizer) {
+                    if (statement.finalizer.body.length > 0) {
+                        prevLocations.forEach(location => result.push([location, getInitialLocation(statement.finalizer)]))
+                        result.push(...getFlows(statement.finalizer))
+                        prevLocations = [getFinalLocation(statement.finalizer)]
+                    }
+                }
+            }
+        }   
+    }
     return result
 }
