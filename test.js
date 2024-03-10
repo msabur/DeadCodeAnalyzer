@@ -28,7 +28,7 @@ import { walk } from 'estree-walker'
         }
     }
 
-    let flows = getFlows(ast)
+    let flows = getFlows(ast).flows
 
     console.log("\nFlows:")
     console.log(flows.map(flow => `(${flow[0]}, ${flow[1]})`).join(" "))
@@ -149,7 +149,8 @@ function getFinalLocation(ast) {
 /**
  * 
  * @param {acorn.AnyNode} ast 
- * @returns {[number, number][]} - A list of flows (as (from, to) pairs like in the book).
+ * @returns {[number, number][], [number][]} - A list of flows (as (from, to) pairs like in the book),
+ *                                             A list of locations that flowed into the most recent statement
  */
 function getFlows(ast) {
     let result = []
@@ -166,6 +167,7 @@ function getFlows(ast) {
             } else if (statement.type === "ThrowStatement") {
                 prevLocations.forEach(location => result.push([location, statement.start]))
                 prevLocations = [statement.start]
+                break;
             } else if (statement.type === "IfStatement") {
                 prevLocations.forEach(location => result.push([location, statement.test.start]))
 				
@@ -176,9 +178,9 @@ function getFlows(ast) {
                 }
 				
 				// flows within the consequent and alternate (then and else)
-				result.push(...getFlows(statement.consequent))
+				result.push(...getFlows(statement.consequent).flows)
 				if(statement.alternate) {
-					result.push(...getFlows(statement.alternate))
+					result.push(...getFlows(statement.alternate).flows)
                 }
 				
 				prevLocations = [getFinalLocation(statement.consequent)]
@@ -193,11 +195,14 @@ function getFlows(ast) {
                 if (statement.body.body.length > 0) {
                     // flows from test into the while body
                     result.push([statement.test.start, getInitialLocation(statement.body)])
-                    result.push(...getFlows(statement.body))
+                    result.push(...getFlows(statement.body).flows)
                     
                     // flows from end of while body to test
                     prevLocations = [getFinalLocation(statement.body)]
                     prevLocations.forEach(location => result.push([location, statement.test.start]))
+
+                    // Can only flow out of the while statement from the test condition
+                    prevLocations = [statement.test.start]
                 } else {
                     result.push([statement.test.start, statement.test.start])
                     prevLocations = [statement.test.start]
@@ -205,27 +210,32 @@ function getFlows(ast) {
             } else if (statement.type === "TryStatement") {
                 if (statement.block.body.length > 0) {
                     prevLocations.forEach(location => result.push([location, getInitialLocation(statement.block)]))
-                    result.push(...getFlows(statement.block))
-                    prevLocations = [getFinalLocation(statement.block)]
-                }
+                    let res = getFlows(statement.block)
+                    result.push(...res.flows)
 
+                    // If a throw statement is encountered, gets correct prevLocation
+                    prevLocations = res.prevLocations
+                }
+                
+                // Flows from try to catch
                 if (statement.handler) {
                     if (statement.handler.body.body.length > 0) {
                         prevLocations.forEach(location => result.push([location, getInitialLocation(statement.handler.body)]))
-                        result.push(...getFlows(statement.handler.body))
+                        result.push(...getFlows(statement.handler.body).flows)
                         prevLocations.push(getFinalLocation(statement.handler.body))
                     }
                 }
 
+                // Flows from catch to finally, or from try to finally
                 if (statement.finalizer) {
                     if (statement.finalizer.body.length > 0) {
                         prevLocations.forEach(location => result.push([location, getInitialLocation(statement.finalizer)]))
-                        result.push(...getFlows(statement.finalizer))
+                        result.push(...getFlows(statement.finalizer).flows)
                         prevLocations = [getFinalLocation(statement.finalizer)]
                     }
                 }
             }
         }   
     }
-    return result
+    return {"flows":result, "prevLocations":prevLocations}
 }
