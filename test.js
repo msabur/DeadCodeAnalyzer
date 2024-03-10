@@ -157,7 +157,6 @@ function getFlows(ast) {
 
     if (["Program", "BlockStatement"].includes(ast.type)) {
         for (let statement of ast.body) {
-            console.log(statement.type, statement.start)
             if (statement.type === "ExpressionStatement") {
                 prevLocations.forEach(location => result.push([location, statement.start]))
                 prevLocations = [statement.start]
