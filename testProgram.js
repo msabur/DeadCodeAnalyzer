@@ -31,4 +31,6 @@ try {
   i = 14
 } catch {
   console.log("Oh no!")
+} finally {
+  console.log('Finally!')
 }
