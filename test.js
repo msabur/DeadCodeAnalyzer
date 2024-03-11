@@ -126,10 +126,10 @@ function getGenAndKillSets(ast) {
  * @returns {number | undefined} - The location of the first statement.
  */
 function getInitialLocation(ast) {
-    if (ast.type === "ExpressionStatement") { // Elementary block
+    if (ast.body && ast.body.length > 0) { // Compound block with statements
+        return ast.body[0].start;
+    } else { // Elementary block or empty compound block
         return ast.start;
-    } else if (ast.body) { // Compound block
-        return ast.body[0]?.start;
     }
 }
 
@@ -139,22 +139,22 @@ function getInitialLocation(ast) {
  * @returns {number | undefined} - The location of the last statement.
  */
 function getFinalLocation(ast) {
-    if (ast.type === "ExpressionStatement") { // Elementary block
+    if (ast.body && ast.body.length > 0) { // Compound block with statements
+        return ast.body[ast.body.length - 1].start;
+    } else { // Elementary block or empty compound block
         return ast.start;
-    } else if (ast.body) { // Compound block
-        return ast.body[ast.body.length - 1]?.start;
     }
 }
 
 /**
  * 
  * @param {acorn.AnyNode} ast 
- * @returns {[number, number][], [number][]} - A list of flows (as (from, to) pairs like in the book),
- *                                             A list of locations that flowed into the most recent statement
+ * @returns {{flows: [number, number][], throwLocation: number | null}}
  */
 function getFlows(ast) {
     let result = []
     let prevLocations = [] // Locations that flow into the current statement
+    let throwLocation = null // Location of the throw statement in case of early termination
 
     if (["Program", "BlockStatement"].includes(ast.type)) {
         for (let statement of ast.body) {
@@ -166,7 +166,7 @@ function getFlows(ast) {
                 prevLocations = [statement.start]
             } else if (statement.type === "ThrowStatement") {
                 prevLocations.forEach(location => result.push([location, statement.start]))
-                prevLocations = [statement.start]
+                throwLocation = statement.start
                 break;
             } else if (statement.type === "IfStatement") {
                 prevLocations.forEach(location => result.push([location, statement.test.start]))
@@ -208,34 +208,35 @@ function getFlows(ast) {
                     prevLocations = [statement.test.start]
                 }
             } else if (statement.type === "TryStatement") {
-                if (statement.block.body.length > 0) {
-                    prevLocations.forEach(location => result.push([location, getInitialLocation(statement.block)]))
-                    let res = getFlows(statement.block)
-                    result.push(...res.flows)
-
-                    // If a throw statement is encountered, gets correct prevLocation
-                    prevLocations = res.prevLocations
+                prevLocations.forEach(location => result.push([location, getInitialLocation(statement.block)]))
+                let res = getFlows(statement.block)
+                result.push(...res.flows)
+                
+                // Assuming we always have a catch, and possibly a finally
+                
+                if (res.throwLocation) {
+                    prevLocations = [getFinalLocation(statement.handler.body)]
+                } else {
+                    prevLocations = [getFinalLocation(statement.block), getFinalLocation(statement.handler.body)]
                 }
                 
                 // Flows from try to catch
-                if (statement.handler) {
-                    if (statement.handler.body.body.length > 0) {
-                        prevLocations.forEach(location => result.push([location, getInitialLocation(statement.handler.body)]))
-                        result.push(...getFlows(statement.handler.body).flows)
-                        prevLocations.push(getFinalLocation(statement.handler.body))
-                    }
+                for (let s of statement.block.body) {
+                    if (res.throwLocation && s.start > res.throwLocation) break;
+                    result.push([s.start, getInitialLocation(statement.handler.body)])
                 }
 
-                // Flows from catch to finally, or from try to finally
+                // add flows within the catch
+                result.push(...getFlows(statement.handler.body).flows)
+                
+                // if finally is also present, add the additional flows
                 if (statement.finalizer) {
-                    if (statement.finalizer.body.length > 0) {
-                        prevLocations.forEach(location => result.push([location, getInitialLocation(statement.finalizer)]))
-                        result.push(...getFlows(statement.finalizer).flows)
-                        prevLocations = [getFinalLocation(statement.finalizer)]
-                    }
+                    result.push(...getFlows(statement.finalizer).flows)
+                    result.push([getFinalLocation(statement.handler.body), getInitialLocation(statement.finalizer)])
+                    prevLocations = [getFinalLocation(statement.finalizer)]
                 }
             }
         }   
     }
-    return {"flows":result, "prevLocations":prevLocations}
+    return {flows:result, throwLocation}
 }
