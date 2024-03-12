@@ -152,7 +152,8 @@ function getFinalLocation(ast) {
  * @returns {{flows: [number, number][], 
  *            throwLocation: number | null, 
  *            breakLocations: number[], 
- *            continueLocations: number[]}}
+ *            continueLocations: number[],
+ *            finalIsReachable: boolean}
  */
 function doFlowAnalysis(ast) {
     let flows = []
@@ -189,10 +190,26 @@ function doFlowAnalysis(ast) {
                 unreachable = true
             } else if (statement.type === "IfStatement") {
                 prevLocations.forEach(location => flows.push([location, statement.test.start]))
-				
+
+                let shouldFlowOutOfTest = true
+                if (statement.test.type === "Literal") {
+                    if (statement.test.value === false || statement.test.value === null) {
+                        console.warn(`Unreachable IfStatement consequent found at char offset ${statement.consequent.start}`)
+                        // hack to avoid having to change the rest of the code
+                        statement.consequent.body = statement.alternate.body
+                        statement.alternate.body = []
+                    } else if (statement.test.value === true) {
+                        console.warn(`Unreachable IfStatement alternate found at char offset ${statement.alternate.start}`)
+                        // hack to avoid having to change the rest of the code
+                        statement.alternate.body = []
+                    }
+                }
+
 				// flows from the test into the consequent and alternate (then and else)
-				flows.push([statement.test.start, getInitialLocation(statement.consequent)])
-				if(statement.alternate) {
+                if (statement.consequent.body.length > 0) {
+				    flows.push([statement.test.start, getInitialLocation(statement.consequent)])
+                }
+				if(statement.alternate?.body.length > 0) {
 					flows.push([statement.test.start, getInitialLocation(statement.alternate)])
                 }
 				
@@ -201,7 +218,7 @@ function doFlowAnalysis(ast) {
                 let consequentRes = doFlowAnalysis(statement.consequent)
 				flows.push(...consequentRes.flows)
 
-				if(statement.alternate) {
+				if(statement.alternate?.body.length > 0) {
                     alternateRes = doFlowAnalysis(statement.alternate)
 					flows.push(...alternateRes.flows)
                 }
@@ -218,18 +235,36 @@ function doFlowAnalysis(ast) {
                 }
 
 				if(statement.alternate) {
-                    if (alternateRes.breakLocations.length > 0) {
+                    if (alternateRes?.breakLocations.length > 0) {
                         alternateRes.breakLocations.forEach(location => breakLocations.push(location))
-                    } else if (alternateRes.continueLocations.length > 0) {
+                    } else if (alternateRes?.continueLocations.length > 0) {
                         alternateRes.continueLocations.forEach(location => continueLocations.push(location))
-                    } else {
+                    } else if (statement.alternate.body.length > 0) {
 					    prevLocations.push(getFinalLocation(statement.alternate))
                     }
                 } else {
 					prevLocations.push(statement.test.start)
                 }
+                
+                // if both the consequent and alternate have break/continue, the
+                // rest of the statements in this block will be unreachable
+                let consequentHasBreak = consequentRes.breakLocations.length > 0
+                let consequentHasContinue = consequentRes.continueLocations.length > 0
+                let alternateHasBreak = alternateRes?.breakLocations.length > 0
+                let alternateHasContinue = alternateRes?.continueLocations.length > 0
+                if ((consequentHasBreak || consequentHasContinue) && (alternateHasBreak || alternateHasContinue)) {
+                    unreachable = true
+                }
             } else if (statement.type === "WhileStatement") {
                 prevLocations.forEach(location => flows.push([location, statement.test.start]))
+
+                if (statement.test.type === "Literal") {
+                    if (statement.test.value === false || statement.test.value === null) {
+                        console.warn(`Unreachable WhileLoop body found at char offset ${statement.body.start}`)
+                        prevLocations = [statement.test.start]
+                        continue // no flows to or in unreachable body
+                    }
+                }
                 
                 if (statement.body.body.length > 0) {
                     // flows from test into the while body
@@ -238,13 +273,16 @@ function doFlowAnalysis(ast) {
                     flows.push(...res.flows)
                     
                     // flows from end of while body to test
-                    prevLocations = [getFinalLocation(statement.body)]
+                    prevLocations = []
+                    if (res.finalIsReachable) {
+                        prevLocations = [getFinalLocation(statement.body)]
+                    }
                     if (res.continueLocations.length > 0) {
                         res.continueLocations.forEach(location => prevLocations.push(location))
                     }
                     prevLocations.forEach(location => flows.push([location, statement.test.start]))
 
-                    // Can only flow out of the while statement from the test condition
+                    // Can only flow out of the while statement from the test condition or breaks
                     prevLocations = [statement.test.start]
                     if (res.breakLocations.length > 0) {
                         res.breakLocations.forEach(location => prevLocations.push(location))
@@ -284,5 +322,5 @@ function doFlowAnalysis(ast) {
             }
         }   
     }
-    return {flows, throwLocation, breakLocations, continueLocations}
+    return {flows, throwLocation, breakLocations, continueLocations, finalIsReachable: !unreachable}
 }
