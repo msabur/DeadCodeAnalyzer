@@ -64,6 +64,10 @@ while (i > 0) {
     continue
     i=2
   }
+
+  console.log('i is now equal to', i)
+  // limitation: get(Final/Initial)Location fails when the last statement in a
+  // block is an if or some other compound statement
 }
 
 console.log('Whew!')
