@@ -28,7 +28,7 @@ import { walk } from 'estree-walker'
         }
     }
 
-    let flows = getFlows(ast).flows
+    let flows = doFlowAnalysis(ast).flows
 
     console.log("\nFlows:")
     console.log(flows.map(flow => `(${flow[0]}, ${flow[1]})`).join(" "))
@@ -154,50 +154,56 @@ function getFinalLocation(ast) {
  *            breakLocations: number[], 
  *            continueLocations: number[]}}
  */
-function getFlows(ast) {
-    let result = []
+function doFlowAnalysis(ast) {
+    let flows = []
     let prevLocations = [] // Locations that flow into the current statement
     let throwLocation = null // Location of the throw statement in case of early termination
     let breakLocations = [] // Location of the break statements in case of early termination
     let continueLocations = [] // Location of the continue statements in case of early termination
+    let unreachable = false // Whether the current statement is unreachable due to throw/break/continue
 
     if (["Program", "BlockStatement"].includes(ast.type)) {
         for (let statement of ast.body) {
-            if (statement.type === "ExpressionStatement") {
-                prevLocations.forEach(location => result.push([location, statement.start]))
+            if (unreachable) {
+                console.warn(`Unreachable statement found: ${statement.type} at char offset ${statement.start}`)
+            } else if (statement.type === "ExpressionStatement") {
+                prevLocations.forEach(location => flows.push([location, statement.start]))
                 prevLocations = [statement.start]
             } else if (statement.type === "VariableDeclaration") {
-                prevLocations.forEach(location => result.push([location, statement.start]))
+                prevLocations.forEach(location => flows.push([location, statement.start]))
                 prevLocations = [statement.start]
             } else if (statement.type === "ThrowStatement") {
-                prevLocations.forEach(location => result.push([location, statement.start]))
+                prevLocations.forEach(location => flows.push([location, statement.start]))
                 throwLocation = statement.start
-                break;
+                // break;
+                unreachable = true
             } else if (statement.type === "BreakStatement") {
-                prevLocations.forEach(location => result.push([location, statement.start]))
+                prevLocations.forEach(location => flows.push([location, statement.start]))
                 breakLocations = [statement.start]
-                break;
+                // break;
+                unreachable = true
             } else if (statement.type === "ContinueStatement") {
-                prevLocations.forEach(location => result.push([location, statement.start]))
+                prevLocations.forEach(location => flows.push([location, statement.start]))
                 continueLocations = [statement.start]
-                break;
+                // break;
+                unreachable = true
             } else if (statement.type === "IfStatement") {
-                prevLocations.forEach(location => result.push([location, statement.test.start]))
+                prevLocations.forEach(location => flows.push([location, statement.test.start]))
 				
 				// flows from the test into the consequent and alternate (then and else)
-				result.push([statement.test.start, getInitialLocation(statement.consequent)])
+				flows.push([statement.test.start, getInitialLocation(statement.consequent)])
 				if(statement.alternate) {
-					result.push([statement.test.start, getInitialLocation(statement.alternate)])
+					flows.push([statement.test.start, getInitialLocation(statement.alternate)])
                 }
 				
 				// flows within the consequent and alternate (then and else)
                 let alternateRes
-                let consequentRes = getFlows(statement.consequent)
-				result.push(...consequentRes.flows)
+                let consequentRes = doFlowAnalysis(statement.consequent)
+				flows.push(...consequentRes.flows)
 
 				if(statement.alternate) {
-                    alternateRes = getFlows(statement.alternate)
-					result.push(...alternateRes.flows)
+                    alternateRes = doFlowAnalysis(statement.alternate)
+					flows.push(...alternateRes.flows)
                 }
 				
                 // Accounting for break/continue statements
@@ -223,20 +229,20 @@ function getFlows(ast) {
 					prevLocations.push(statement.test.start)
                 }
             } else if (statement.type === "WhileStatement") {
-                prevLocations.forEach(location => result.push([location, statement.test.start]))
+                prevLocations.forEach(location => flows.push([location, statement.test.start]))
                 
                 if (statement.body.body.length > 0) {
                     // flows from test into the while body
-                    result.push([statement.test.start, getInitialLocation(statement.body)])
-                    let res = getFlows(statement.body)
-                    result.push(...getFlows(statement.body).flows)
+                    flows.push([statement.test.start, getInitialLocation(statement.body)])
+                    let res = doFlowAnalysis(statement.body)
+                    flows.push(...res.flows)
                     
                     // flows from end of while body to test
                     prevLocations = [getFinalLocation(statement.body)]
                     if (res.continueLocations.length > 0) {
                         res.continueLocations.forEach(location => prevLocations.push(location))
                     }
-                    prevLocations.forEach(location => result.push([location, statement.test.start]))
+                    prevLocations.forEach(location => flows.push([location, statement.test.start]))
 
                     // Can only flow out of the while statement from the test condition
                     prevLocations = [statement.test.start]
@@ -244,13 +250,13 @@ function getFlows(ast) {
                         res.breakLocations.forEach(location => prevLocations.push(location))
                     }
                 } else {
-                    result.push([statement.test.start, statement.test.start])
+                    flows.push([statement.test.start, statement.test.start])
                     prevLocations = [statement.test.start]
                 }
             } else if (statement.type === "TryStatement") {
-                prevLocations.forEach(location => result.push([location, getInitialLocation(statement.block)]))
-                let res = getFlows(statement.block)
-                result.push(...res.flows)
+                prevLocations.forEach(location => flows.push([location, getInitialLocation(statement.block)]))
+                let res = doFlowAnalysis(statement.block)
+                flows.push(...res.flows)
                 
                 // Assuming we always have a catch, and possibly a finally
                 
@@ -263,20 +269,20 @@ function getFlows(ast) {
                 // Flows from try to catch
                 for (let s of statement.block.body) {
                     if (res.throwLocation && s.start > res.throwLocation) break;
-                    result.push([s.start, getInitialLocation(statement.handler.body)])
+                    flows.push([s.start, getInitialLocation(statement.handler.body)])
                 }
 
                 // add flows within the catch
-                result.push(...getFlows(statement.handler.body).flows)
+                flows.push(...doFlowAnalysis(statement.handler.body).flows)
                 
                 // if finally is also present, add the additional flows
                 if (statement.finalizer) {
-                    result.push(...getFlows(statement.finalizer).flows)
-                    result.push([getFinalLocation(statement.handler.body), getInitialLocation(statement.finalizer)])
+                    flows.push(...doFlowAnalysis(statement.finalizer).flows)
+                    flows.push([getFinalLocation(statement.handler.body), getInitialLocation(statement.finalizer)])
                     prevLocations = [getFinalLocation(statement.finalizer)]
                 }
             }
         }   
     }
-    return {flows:result, throwLocation, breakLocations, continueLocations}
+    return {flows, throwLocation, breakLocations, continueLocations}
 }
