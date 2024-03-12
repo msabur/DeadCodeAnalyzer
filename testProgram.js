@@ -47,4 +47,23 @@ try {
   console.log("No finally!")
 }
 
+// Break/continue
+while (i > 0) {
+  output = output * i
+  i = i - 1
+  if (i > 0) {
+    i=1
+    break
+    i=2
+  }
+
+  if (i > 0) {
+    i=2
+  } else {
+    i=1
+    continue
+    i=2
+  }
+}
+
 console.log('Whew!')
