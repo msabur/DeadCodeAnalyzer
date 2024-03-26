@@ -62,8 +62,16 @@ while (i > 0) {
   }
 
   console.log('i is now equal to', i)
-  // limitation: get(Final/Initial)Location fails when the last statement in a
-  // block is an if or some other compound statement
+}
+
+// solved limitation: getting final/initial failing when the last statement in a
+// block is an if or another compound statement...
+i = 100;
+while (i > 0) {
+  i = i - 1
+  if (i % 25 == 0) {
+    console.log(i, 'is divisible by 25')
+  }
 }
 
 console.log('Whew!')
