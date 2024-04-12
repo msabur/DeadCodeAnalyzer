@@ -32,7 +32,96 @@ import { walk } from 'estree-walker'
 
     console.log("\nFlows:")
     console.log(flows.map(flow => `(${flow[0]}, ${flow[1]})`).join(" "))
+
+    let { LVentry, LVexit } = doLiveVariableAnalysis(flows, killed, generated)
+
+    console.log("\nLive variables:")
+    let data = {}
+    for (let label of LVentry.keys()) {
+        data[label] = {LVentry: Array.from(LVentry.get(label)), LVexit: Array.from(LVexit.get(label))}
+    }
+    console.table(data)
 })()
+
+/**
+ * @param {[number, number][]} flows 
+ * @param {Map<number, Set<string>>} killed 
+ * @param {Map<number, Set<string>>} generated 
+ */
+function doLiveVariableAnalysis(flows, killed, generated) {
+    /** @type {Set<number>} */
+    let allLabels = new Set()
+    for (let [from, to] of flows) {
+        allLabels.add(from)
+        allLabels.add(to)
+    }
+
+    /** @type {Map<number, Set<string>} */
+    let LVentry = new Map()
+
+    /** @type {Map<number, Set<string>} */
+    let LVexit = new Map()
+
+    /** @type {Map<number, number[]>} */
+    let successors = new Map()
+
+    for (let label of allLabels) {
+        LVentry.set(label, new Set())
+        LVexit.set(label, new Set())
+        let outflows = flows.filter(([from, _]) => (from == label))
+        successors.set(label, outflows.map(([_, to]) => to))
+    }
+
+    // Chaotic iteration for finding LV_entry and LV_exit for each label
+    while (true) {
+        let changed = false
+
+        for (let label of allLabels) {
+            // find new LV_exit for this label
+            // LV_exit(l) = U{ LV_entry(l') | (l, l') in flow(S*) }
+            let new_LVexit = new Set()
+            for (let successor of successors.get(label)) {
+                for (let value of LVentry.get(successor).values()) {
+                    new_LVexit.add(value)
+                }
+            }
+
+            // find new LV_entry for this label
+            // LV_entry(l) = (LV_exit(l) - kill(B^l)) + gen(B^l)
+            let new_LVentry = new Set(new_LVexit)
+            if (killed.has(label)) {
+                for (let kill of killed.get(label).values()) {
+                    new_LVentry.delete(kill)
+                }
+            }
+            if (generated.has(label)) {
+                for (let gen of generated.get(label).values()) {
+                    new_LVentry.add(gen)
+                }
+            }
+
+            // update old LV_entry/LV_exit if the new ones differ
+            if (!setsAreEqual(LVentry.get(label), new_LVentry)) {
+                changed = true
+                LVentry.set(label, new_LVentry)
+            }
+            if (!setsAreEqual(LVexit.get(label), new_LVexit)) {
+                changed = true
+                LVexit.set(label, new_LVexit)
+            }
+        }
+
+        if (!changed) {
+            break
+        }
+    }
+    return { LVentry, LVexit }
+}
+
+// source: https://stackoverflow.com/a/31129384
+function setsAreEqual(xs, ys) {
+    return xs.size === ys.size && [...xs].every((x) => ys.has(x));
+}
 
 /**
  * 
@@ -42,10 +131,7 @@ import { walk } from 'estree-walker'
 function getGenAndKillSets(ast) {
     let generated = new Map()
 
-    /**
-     * @type {Map<number, Set<string>>}
-     * Maps a statement's location to the set of variables it kills
-     */
+    /** @type {Map<number, Set<string>>} */
     let killed = new Map()
 
     let currentLocation = 0
@@ -93,24 +179,28 @@ function getGenAndKillSets(ast) {
                     }
                 }
             } else if (node.type == "WhileStatement") {
-                killed.set(currentLocation, killed.get(currentLocation) || new Set())
-                generated.set(currentLocation, generated.get(currentLocation) || new Set())
+                const testLocation = node.test.start
+
+                killed.set(testLocation, killed.get(testLocation) || new Set())
+                generated.set(testLocation, generated.get(testLocation) || new Set())
 
                 walk(node.test, {
                     enter(node) {
                         if (node.type == "Identifier") {
-                            generated.get(currentLocation).add(node.name)
+                            generated.get(testLocation).add(node.name)
                         }
                     }
                 })
             } else if (node.type == "IfStatement") {
-                killed.set(currentLocation, killed.get(currentLocation) || new Set())
-                generated.set(currentLocation, generated.get(currentLocation) || new Set())
+                const testLocation = node.test.start
+
+                killed.set(testLocation, killed.get(testLocation) || new Set())
+                generated.set(testLocation, generated.get(testLocation) || new Set())
 
                 walk(node.test, {
                     enter(node) {
                         if (node.type == "Identifier") {
-                            generated.get(currentLocation).add(node.name)
+                            generated.get(testLocation).add(node.name)
                         }
                     }
                 })
@@ -121,7 +211,6 @@ function getGenAndKillSets(ast) {
 }
 
 /**
- * 
  * @param {acorn.AnyNode} ast 
  * @returns {{flows: [number, number][], 
  *            throwLocation: number | null, 
