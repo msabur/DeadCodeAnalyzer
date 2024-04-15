@@ -41,6 +41,24 @@ import { walk } from 'estree-walker'
         data[label] = {LVentry: Array.from(LVentry.get(label)), LVexit: Array.from(LVexit.get(label))}
     }
     console.table(data)
+
+    for (let [location, variables] of killed) {
+        let continueFlag = 0
+        if (variables.size > 0) {
+            let killedVariable = Array.from(variables)[0]
+            if ((Array.from(LVexit.keys())).includes(location)) {
+                for (let variable of Array.from(LVexit.get(location))) {
+                    if (variable == killedVariable) {
+                        continueFlag = 1
+                        break
+                    }
+                }
+                if (continueFlag)
+                    continue
+                console.warn(`Dead assignment found: ${killedVariable} at char offset ${location}`)
+            }
+        }
+    }
 })()
 
 /**
