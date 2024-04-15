@@ -1,20 +1,29 @@
 import { argv } from 'node:process'
 import { readFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 import * as acorn from "acorn"
 import { walk } from 'estree-walker'
 
-(function main() {
-    let inputFilename = "testProgram.js"
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+    let inputFilename
     if (argv.length > 2) {
         inputFilename = argv[2]
+    } else {
+        console.error(`Please provide an input filename`)
+        process.exit(1)
     }
 
     let inputCode = readFileSync(inputFilename)
     let ast = acorn.parse(inputCode, { ecmaVersion: 2023 })
 
+    let { flows } = doFlowAnalysis(ast)
+/*
+    console.log("Flows:")
+    console.log(flows.map(flow => `(${flow[0]}, ${flow[1]})`).join(" "))
+*/
     let { generated, killed } = getGenAndKillSets(ast)
-
-    console.log("Gen sets:")
+/*
+    console.log("\nGen sets:")
     for (let [location, variables] of generated) {
         if (variables.size > 0) {
             console.log(`${location}: { ${Array.from(variables).join(", ")} }`)
@@ -27,14 +36,9 @@ import { walk } from 'estree-walker'
             console.log(`${location}: { ${Array.from(variables).join(", ")} }`)
         }
     }
-
-    let flows = doFlowAnalysis(ast).flows
-
-    console.log("\nFlows:")
-    console.log(flows.map(flow => `(${flow[0]}, ${flow[1]})`).join(" "))
-
+*/
     let { LVentry, LVexit } = doLiveVariableAnalysis(flows, killed, generated)
-
+/*
     console.log("\nLive variables:")
     let data = {}
     for (let label of LVentry.keys()) {
@@ -49,7 +53,7 @@ import { walk } from 'estree-walker'
  * @param {Map<number, Set<string>>} killed 
  * @param {Map<number, Set<string>>} generated 
  */
-function doLiveVariableAnalysis(flows, killed, generated) {
+export function doLiveVariableAnalysis(flows, killed, generated) {
     /** @type {Set<number>} */
     let allLabels = new Set()
     for (let [from, to] of flows) {
@@ -148,7 +152,7 @@ function setsAreEqual(xs, ys) {
  * @param {acorn.Program} ast 
  * @returns {{generated: Map<number, Set<string>>, killed: Map<number, Set<string>>}}
  */
-function getGenAndKillSets(ast) {
+export function getGenAndKillSets(ast) {
     let generated = new Map()
 
     /** @type {Map<number, Set<string>>} */
@@ -240,7 +244,7 @@ function getGenAndKillSets(ast) {
  *            finals: number[],
  *            finalIsReachable: boolean}}
  */
-function doFlowAnalysis(ast) {
+export function doFlowAnalysis(ast) {
     let flows = []
     let prevLocations = [] // Locations that flow into the current statement
     let throwLocation = null // Location of the throw statement in case of early termination
